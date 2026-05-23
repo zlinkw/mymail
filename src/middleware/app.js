@@ -5,8 +5,6 @@
 
 import { verifyJwtWithCache, checkRootAdminOverride } from './auth.js';
 
-import { checkRootAdminOverride, verifyJwtWithCache } from './auth.js';
-
 export function authMiddleware() {
   return async (c, next) => {
     const token = c.env.JWT_TOKEN || c.env.JWT_SECRET || "";
