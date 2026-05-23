@@ -5,14 +5,32 @@
 
 import { verifyJwtWithCache, checkRootAdminOverride } from './auth.js';
 
+import { checkRootAdminOverride, verifyJwtWithCache } from './auth.js';
+
 export function authMiddleware() {
   return async (c, next) => {
-    const token = c.env.JWT_TOKEN || c.env.JWT_SECRET || '';
+    const token = c.env.JWT_TOKEN || c.env.JWT_SECRET || "";
     const root = checkRootAdminOverride(c.req.raw, token);
-    if (root) { c.set('authPayload', root); return next(); }
-    const payload = await verifyJwtWithCache(token, c.req.header('Cookie') || '');
-    if (!payload) return c.text('Unauthorized', 401);
-    c.set('authPayload', payload);
+    if (root) {
+      c.set("authPayload", root);
+      return next();
+    }
+
+    // 1. 优先尝试从普通的 Cookie 中读取登录状态
+    let payload = await verifyJwtWithCache(token, c.req.header("Cookie") || "");
+
+    // 2. 如果 Cookie 没读到，尝试从注册机常用的 Authorization: Bearer <jwt> 头部提取并校验
+    if (!payload) {
+      const authHeader = c.req.header("Authorization") || c.req.header("authorization") || "";
+      if (authHeader.startsWith("Bearer ")) {
+        const bearerToken = authHeader.slice(7).trim();
+        // 构造虚拟 Cookie，无缝复用原有的验证系统与内置的全局 JWT 缓存机制
+        payload = await verifyJwtWithCache(token, `iding-session=${bearerToken}`);
+      }
+    }
+
+    if (!payload) return c.text("Unauthorized", 401);
+    c.set("authPayload", payload);
     return next();
   };
 }
