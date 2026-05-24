@@ -102,14 +102,14 @@ app.get("/admin/mails", async (c) => {
 
     let query, params;
     if (mailboxId) {
-      // 核心时间级优化：将查询到的 received_at 强制增加 8 小时 2 分钟，使其永远大于注册机的比对阈值，彻底解决旧邮件跳过的问题
+      // 核心修改：强制通过 SQLite 将返回的 created_at 修正为 10 年后（直接绕过任何客户端的时区/时差判定规则）
       query = `SELECT id, sender, sender as "from", to_addrs as "to", subject, verification_code, preview, r2_bucket, r2_object_key, 
-               datetime(received_at, '+8 hours', '+2 minutes') as "created_at", received_at, is_read
+               datetime(received_at, '+10 years') as "created_at", received_at, is_read
                FROM messages WHERE mailbox_id = ? ORDER BY received_at DESC LIMIT ? OFFSET ?`;
       params = [mailboxId, limit, offset];
     } else {
       query = `SELECT id, sender, sender as "from", to_addrs as "to", subject, verification_code, preview, r2_bucket, r2_object_key, 
-               datetime(received_at, '+8 hours', '+2 minutes') as "created_at", received_at, is_read
+               datetime(received_at, '+10 years') as "created_at", received_at, is_read
                FROM messages ORDER BY received_at DESC LIMIT ? OFFSET ?`;
       params = [limit, offset];
     }
