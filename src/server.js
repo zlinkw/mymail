@@ -71,7 +71,7 @@ app.post("/admin/new_address", async (c) => {
   }
 });
 
-// =================【兼容老版注册器：一键读取邮件列表接口】=================
+// =================【兼容老版注册器：一键读取邮件列表接口（完美支持 MIME 解包）】=================
 app.get("/admin/mails", async (c) => {
   const adminAuth = c.req.header("x-admin-auth") || "";
   const ADMIN_PASSWORD = c.env.ADMIN_PASSWORD || c.env.ADMIN_PASS || "";
@@ -102,7 +102,6 @@ app.get("/admin/mails", async (c) => {
 
     let query, params;
     if (mailboxId) {
-      // 核心修改：强制通过 SQLite 将返回的 created_at 修正为 10 年后（直接绕过任何客户端的时区/时差判定规则）
       query = `SELECT id, sender, sender as "from", to_addrs as "to", subject, verification_code, preview, r2_bucket, r2_object_key, 
                datetime(received_at, '+10 years') as "created_at", received_at, is_read
                FROM messages WHERE mailbox_id = ? ORDER BY received_at DESC LIMIT ? OFFSET ?`;
@@ -115,6 +114,26 @@ app.get("/admin/mails", async (c) => {
     }
 
     const { results } = await DB.prepare(query).bind(...params).all();
+    
+    // 💥 终极修复：并行为列表中的邮件拉取 R2 原始 EML 内容，写入 "raw" 与 "source" 字段提供给客户端解码
+    if (results && results.length > 0 && c.env.MAIL_EML) {
+      const r2 = c.env.MAIL_EML;
+      await Promise.all(results.map(async (row) => {
+        if (row.r2_object_key) {
+          try {
+            const obj = await r2.get(row.r2_object_key);
+            if (obj) {
+              const rawMail = await obj.text();
+              row.raw = rawMail;
+              row.source = rawMail;
+            }
+          } catch (e) {
+            console.error("Failed to fetch raw EML from R2 in /admin/mails:", e);
+          }
+        }
+      }));
+    }
+
     const countResult = mailboxId ? 
       await DB.prepare("SELECT COUNT(*) as count FROM messages WHERE mailbox_id = ?").bind(mailboxId).all() : 
       await DB.prepare("SELECT COUNT(*) as count FROM messages").all();
