@@ -1,6 +1,6 @@
 import { getMailboxIdByAddress } from '../db/mailboxes.js';
 import { getMailboxAccess, getMessageAccess, errorResponse } from './helpers.js';
-import { extractEmail } from '../utils/common.js';
+import { extractEmail, normalizeEmailAlias } from '../utils/common.js'; // 导入 normalizeEmailAlias 
 import { parseEmailBody } from '../email/parser.js';
 import { buildMockEmails, buildMockEmailDetail } from './mock.js';
 
@@ -10,7 +10,6 @@ import { buildMockEmails, buildMockEmailDetail } from './mock.js';
 export function mailboxOnlyTimeFilter(enabled) {
   if (!enabled) return { sql: "", params: [] };
   return {
-    // 巧妙利用 SQLite 原生时间函数代替不兼容的 JS ISOString，彻底避免比对为空的问题
     sql: " AND received_at >= datetime('now', '-24 hours')",
     params: []
   };
@@ -42,7 +41,10 @@ export async function handleEmailsApi(request, db, url, path, options) {
     if (!mailbox) return errorResponse("缺少 mailbox 参数", 400);
     try {
       if (isMock) return Response.json(buildMockEmails(6));
-      const normalized = extractEmail(mailbox).trim().toLowerCase();
+      
+      // 核心修复：查询时也将邮箱地址标准化，确保能正确匹配到收件箱
+      const normalized = normalizeEmailAlias(extractEmail(mailbox)); 
+      
       const mailboxId = await getMailboxIdByAddress(db, normalized);
       if (!mailboxId) return Response.json([]);
       const access = await getMailboxAccess(db, request, options, { mailboxId });
@@ -118,7 +120,9 @@ export async function handleEmailsApi(request, db, url, path, options) {
     const mailbox = url.searchParams.get("mailbox");
     if (!mailbox) return errorResponse("缺少 mailbox 参数", 400);
     try {
-      const normalized = extractEmail(mailbox).trim().toLowerCase();
+      // 核心修复：清空邮件时同样将邮箱地址标准化
+      const normalized = normalizeEmailAlias(extractEmail(mailbox));
+      
       const mailboxId = await getMailboxIdByAddress(db, normalized);
       if (!mailboxId) return Response.json({ success: true, deletedCount: 0 });
       const access = await getMailboxAccess(db, request, options, { mailboxId });
