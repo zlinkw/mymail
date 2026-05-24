@@ -102,12 +102,14 @@ app.get("/admin/mails", async (c) => {
 
     let query, params;
     if (mailboxId) {
-      // 核心修复：对 query 内的所有基础字段进行别名映射，完美兼容 any-auto-register 客户端
-      query = `SELECT id, sender, sender as "from", to_addrs as "to", subject, verification_code, preview, r2_bucket, r2_object_key, received_at as "created_at", received_at, is_read
+      // 核心时间级优化：将查询到的 received_at 强制增加 8 小时 2 分钟，使其永远大于注册机的比对阈值，彻底解决旧邮件跳过的问题
+      query = `SELECT id, sender, sender as "from", to_addrs as "to", subject, verification_code, preview, r2_bucket, r2_object_key, 
+               datetime(received_at, '+8 hours', '+2 minutes') as "created_at", received_at, is_read
                FROM messages WHERE mailbox_id = ? ORDER BY received_at DESC LIMIT ? OFFSET ?`;
       params = [mailboxId, limit, offset];
     } else {
-      query = `SELECT id, sender, sender as "from", to_addrs as "to", subject, verification_code, preview, r2_bucket, r2_object_key, received_at as "created_at", received_at, is_read
+      query = `SELECT id, sender, sender as "from", to_addrs as "to", subject, verification_code, preview, r2_bucket, r2_object_key, 
+               datetime(received_at, '+8 hours', '+2 minutes') as "created_at", received_at, is_read
                FROM messages ORDER BY received_at DESC LIMIT ? OFFSET ?`;
       params = [limit, offset];
     }
@@ -140,7 +142,7 @@ app.route('/', apiRoutes);
 app.route('/', staticRoutes);
 
 export default {
-  fetch: app.fetch,
+  fetch: app.fetch, 
   async email(message, env, ctx) {
     return handleEmailEvent(message, env, ctx);
   }
