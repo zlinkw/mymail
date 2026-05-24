@@ -9,9 +9,9 @@ import authRoutes from './routes/auth.js';
 import apiRoutes from './routes/api.js';
 import staticRoutes from './routes/static.js';
 import { handleEmailEvent } from './email/handler.js';
-import { getOrCreateMailboxId, getMailboxIdByAddress } from './db/mailboxes.js'; // 导入 getMailboxIdByAddress
+import { getOrCreateMailboxId, getMailboxIdByAddress } from './db/mailboxes.js'; 
 import { createJwt } from './middleware/auth.js';
-import { generateRandomId, normalizeEmailAlias } from './utils/common.js'; // 导入 normalizeEmailAlias
+import { generateRandomId, normalizeEmailAlias } from './utils/common.js'; 
 import { getInitializedDatabase } from './db/connection.js';
 
 const app = new Hono();
@@ -28,7 +28,7 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-// =================【新增接口 1：注册机要求的一键创建新邮箱接口】=================
+// =================【兼容老版注册器：一键创建新邮箱接口】=================
 app.post("/admin/new_address", async (c) => {
   const adminAuth = c.req.header("x-admin-auth") || "";
   const ADMIN_PASSWORD = c.env.ADMIN_PASSWORD || c.env.ADMIN_PASS || "";
@@ -71,7 +71,7 @@ app.post("/admin/new_address", async (c) => {
   }
 });
 
-// =================【新增接口 2：注册机要求的一键读取邮件列表接口（彻底消除 302）】=================
+// =================【兼容老版注册器：一键读取邮件列表接口】=================
 app.get("/admin/mails", async (c) => {
   const adminAuth = c.req.header("x-admin-auth") || "";
   const ADMIN_PASSWORD = c.env.ADMIN_PASSWORD || c.env.ADMIN_PASS || "";
@@ -93,7 +93,6 @@ app.get("/admin/mails", async (c) => {
 
     let mailboxId = null;
     if (rawAddress) {
-      // 同样对查询的邮箱进行标准化，避免别名引起无法对齐的问题
       const normalized = normalizeEmailAlias(rawAddress.trim().toLowerCase());
       mailboxId = await getMailboxIdByAddress(DB, normalized);
       if (!mailboxId) {
@@ -103,11 +102,12 @@ app.get("/admin/mails", async (c) => {
 
     let query, params;
     if (mailboxId) {
-      query = `SELECT id, sender, to_addrs as "to", subject, verification_code, preview, r2_bucket, r2_object_key, received_at, is_read
+      // 核心修复：对 query 内的所有基础字段进行别名映射，完美兼容 any-auto-register 客户端
+      query = `SELECT id, sender, sender as "from", to_addrs as "to", subject, verification_code, preview, r2_bucket, r2_object_key, received_at as "created_at", received_at, is_read
                FROM messages WHERE mailbox_id = ? ORDER BY received_at DESC LIMIT ? OFFSET ?`;
       params = [mailboxId, limit, offset];
     } else {
-      query = `SELECT id, sender, to_addrs as "to", subject, verification_code, preview, r2_bucket, r2_object_key, received_at, is_read
+      query = `SELECT id, sender, sender as "from", to_addrs as "to", subject, verification_code, preview, r2_bucket, r2_object_key, received_at as "created_at", received_at, is_read
                FROM messages ORDER BY received_at DESC LIMIT ? OFFSET ?`;
       params = [limit, offset];
     }
@@ -124,7 +124,7 @@ app.get("/admin/mails", async (c) => {
     return c.json({ results: [], count: 0 }, 200);
   }
 });
-// ======================================================================================
+// ==============================================================================
 
 // 公开认证路由（/api/logout, /api/login）
 app.route('/', authRoutes);
