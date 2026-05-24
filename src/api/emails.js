@@ -11,10 +11,10 @@ import { parseEmailBody } from '../email/parser.js';
 
 // 邮箱登录模式只允许查看最近 24 小时内的邮件。
 function mailboxOnlyTimeFilter(enabled) {
-  if (!enabled) return { sql: '', params: [] };
+  if (!enabled) return { sql: "", params: [] };
   return {
-    sql: ' AND received_at >= ?',
-    params: [new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()]
+    sql: " AND received_at >= datetime('now', '-24 hours')",
+    params: []
   };
 }
 
