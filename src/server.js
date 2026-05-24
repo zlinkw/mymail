@@ -16,6 +16,25 @@ import { getInitializedDatabase } from './db/connection.js';
 
 const app = new Hono();
 
+
+// =================【调试专属：全量请求/响应侦听拦截器】=================
+app.use('*', async (c, next) => {
+  const url = new URL(c.req.url);
+  // 1. 打印请求方法、路径、查询参数
+  console.log(`[DEBUG-REQ] ${c.req.method} ${url.pathname}${url.search}`);
+  
+  // 2. 打印客户端发送的全部 Headers（重点排查 Authorization 和 Cookie）
+  console.log(`[DEBUG-HEADERS] ${JSON.stringify(c.req.header())}`);
+  
+  // 执行后续业务逻辑
+  await next();
+  
+  // 3. 打印 Worker 返回给客户端的状态码
+  console.log(`[DEBUG-RES-STATUS] ${c.res.status}`);
+});
+// =====================================================================
+
+
 // 全局安全响应头
 app.use('*', async (c, next) => {
   c.header('X-Content-Type-Options', 'nosniff');
