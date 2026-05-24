@@ -71,7 +71,7 @@ app.post("/admin/new_address", async (c) => {
   }
 });
 
-// =================【兼容老版注册器：一键读取邮件列表接口（完美支持 MIME 解包）】=================
+// =================【兼容老版注册器：一键读取邮件列表接口】=================
 app.get("/admin/mails", async (c) => {
   const adminAuth = c.req.header("x-admin-auth") || "";
   const ADMIN_PASSWORD = c.env.ADMIN_PASSWORD || c.env.ADMIN_PASS || "";
@@ -102,20 +102,21 @@ app.get("/admin/mails", async (c) => {
 
     let query, params;
     if (mailboxId) {
+      // 成功回滚：不再进行未来时间强制加减，仅保留 created_at 别名映射
       query = `SELECT id, sender, sender as "from", to_addrs as "to", subject, verification_code, preview, r2_bucket, r2_object_key, 
-               datetime(received_at, '+10 years') as "created_at", received_at, is_read
+               received_at as "created_at", received_at, is_read
                FROM messages WHERE mailbox_id = ? ORDER BY received_at DESC LIMIT ? OFFSET ?`;
       params = [mailboxId, limit, offset];
     } else {
       query = `SELECT id, sender, sender as "from", to_addrs as "to", subject, verification_code, preview, r2_bucket, r2_object_key, 
-               datetime(received_at, '+10 years') as "created_at", received_at, is_read
+               received_at as "created_at", received_at, is_read
                FROM messages ORDER BY received_at DESC LIMIT ? OFFSET ?`;
       params = [limit, offset];
     }
 
     const { results } = await DB.prepare(query).bind(...params).all();
     
-    // 💥 终极修复：并行为列表中的邮件拉取 R2 原始 EML 内容，写入 "raw" 与 "source" 字段提供给客户端解码
+    // 并行注入 R2 的 raw 报文
     if (results && results.length > 0 && c.env.MAIL_EML) {
       const r2 = c.env.MAIL_EML;
       await Promise.all(results.map(async (row) => {
