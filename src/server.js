@@ -9,31 +9,12 @@ import authRoutes from './routes/auth.js';
 import apiRoutes from './routes/api.js';
 import staticRoutes from './routes/static.js';
 import { handleEmailEvent } from './email/handler.js';
-import { getOrCreateMailboxId } from './db/mailboxes.js';
+import { getOrCreateMailboxId, getMailboxIdByAddress } from './db/mailboxes.js'; // 导入 getMailboxIdByAddress
 import { createJwt } from './middleware/auth.js';
-import { generateRandomId } from './utils/common.js';
+import { generateRandomId, normalizeEmailAlias } from './utils/common.js'; // 导入 normalizeEmailAlias
 import { getInitializedDatabase } from './db/connection.js';
 
 const app = new Hono();
-
-
-// =================【调试专属：全量请求/响应侦听拦截器】=================
-app.use('*', async (c, next) => {
-  const url = new URL(c.req.url);
-  // 1. 打印请求方法、路径、查询参数
-  console.log(`[DEBUG-REQ] ${c.req.method} ${url.pathname}${url.search}`);
-  
-  // 2. 打印客户端发送的全部 Headers（重点排查 Authorization 和 Cookie）
-  console.log(`[DEBUG-HEADERS] ${JSON.stringify(c.req.header())}`);
-  
-  // 执行后续业务逻辑
-  await next();
-  
-  // 3. 打印 Worker 返回给客户端的状态码
-  console.log(`[DEBUG-RES-STATUS] ${c.res.status}`);
-});
-// =====================================================================
-
 
 // 全局安全响应头
 app.use('*', async (c, next) => {
@@ -47,7 +28,7 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-// =================【兼容老版注册器：一键创建新邮箱接口】=================
+// =================【新增接口 1：注册机要求的一键创建新邮箱接口】=================
 app.post("/admin/new_address", async (c) => {
   const adminAuth = c.req.header("x-admin-auth") || "";
   const ADMIN_PASSWORD = c.env.ADMIN_PASSWORD || c.env.ADMIN_PASS || "";
@@ -89,7 +70,61 @@ app.post("/admin/new_address", async (c) => {
     return c.json({ error: String(e?.message || "Internal error") }, 500);
   }
 });
-// =====================================================================
+
+// =================【新增接口 2：注册机要求的一键读取邮件列表接口（彻底消除 302）】=================
+app.get("/admin/mails", async (c) => {
+  const adminAuth = c.req.header("x-admin-auth") || "";
+  const ADMIN_PASSWORD = c.env.ADMIN_PASSWORD || c.env.ADMIN_PASS || "";
+  if (!ADMIN_PASSWORD || adminAuth !== ADMIN_PASSWORD) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  let DB;
+  try {
+    DB = await getInitializedDatabase(c.env);
+  } catch (error) {
+    return c.json({ results: [], count: 0 }, 200);
+  }
+
+  try {
+    const rawAddress = c.req.query("address") || "";
+    const limit = Math.min(parseInt(c.req.query("limit") || "20", 10), 50);
+    const offset = parseInt(c.req.query("offset") || "0", 10);
+
+    let mailboxId = null;
+    if (rawAddress) {
+      // 同样对查询的邮箱进行标准化，避免别名引起无法对齐的问题
+      const normalized = normalizeEmailAlias(rawAddress.trim().toLowerCase());
+      mailboxId = await getMailboxIdByAddress(DB, normalized);
+      if (!mailboxId) {
+        return c.json({ results: [], count: 0 }, 200);
+      }
+    }
+
+    let query, params;
+    if (mailboxId) {
+      query = `SELECT id, sender, to_addrs as "to", subject, verification_code, preview, r2_bucket, r2_object_key, received_at, is_read
+               FROM messages WHERE mailbox_id = ? ORDER BY received_at DESC LIMIT ? OFFSET ?`;
+      params = [mailboxId, limit, offset];
+    } else {
+      query = `SELECT id, sender, to_addrs as "to", subject, verification_code, preview, r2_bucket, r2_object_key, received_at, is_read
+               FROM messages ORDER BY received_at DESC LIMIT ? OFFSET ?`;
+      params = [limit, offset];
+    }
+
+    const { results } = await DB.prepare(query).bind(...params).all();
+    const countResult = mailboxId ? 
+      await DB.prepare("SELECT COUNT(*) as count FROM messages WHERE mailbox_id = ?").bind(mailboxId).all() : 
+      await DB.prepare("SELECT COUNT(*) as count FROM messages").all();
+    const count = countResult?.results?.[0]?.count || 0;
+
+    return c.json({ results: results || [], count }, 200);
+  } catch (e) {
+    console.error("admin/mails error:", e);
+    return c.json({ results: [], count: 0 }, 200);
+  }
+});
+// ======================================================================================
 
 // 公开认证路由（/api/logout, /api/login）
 app.route('/', authRoutes);
