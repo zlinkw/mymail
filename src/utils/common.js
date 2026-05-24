@@ -34,39 +34,9 @@ export function extractEmail(addr) {
  * @returns {string} 规范化后的邮箱地址
  */
 export function normalizeEmailAlias(email) {
-  const normalized = String(email || '').trim().toLowerCase();
-  if (!normalized) return '';
-
-  const atIndex = normalized.indexOf('@');
-  if (atIndex <= 0) return normalized;
-
-  const localPart = normalized.slice(0, atIndex);
-  const domain = normalized.slice(atIndex + 1);
-
-  // 查找本地部分中最后一个分隔符的位置（支持 . + - 三种）
-  const lastDotIndex = localPart.lastIndexOf('.');
-  const lastPlusIndex = localPart.lastIndexOf('+');
-  const lastDashIndex = localPart.lastIndexOf('-');
-
-  // 找到最后一个分隔符的位置
-  const lastSeparatorIndex = Math.max(lastDotIndex, lastPlusIndex, lastDashIndex);
-
-  // 如果没有分隔符，或者分隔符在第一个位置，保持原样
-  if (lastSeparatorIndex <= 0) {
-    return normalized;
-  }
-
-  // 取最后一个分隔符后面的部分作为真正的本地部分
-  const realLocalPart = localPart.slice(lastSeparatorIndex + 1);
-
-  // 如果分隔符后面没有内容，保持原样
-  if (!realLocalPart) {
-    return normalized;
-  }
-
-  return `${realLocalPart}@${domain}`;
+  // 直接返回干净、小写的原始邮箱地址，不进行任何截断
+  return String(email || "").trim().toLowerCase();
 }
-
 /**
  * 生成指定长度的随机ID
  * @param {number} length - ID长度，默认为8
