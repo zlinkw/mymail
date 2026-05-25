@@ -87,7 +87,22 @@ export function extractVerificationCode({ subject = '', text = '', html = '' } =
       }
     }
   }
+  // =================【最强通用 6 位验证码兜底逻辑】=================
+  // 如果经过上述所有严格关键字匹配后依然没找到验证码，
+  // 鉴于这是一个纯净的单收件箱，直接在邮件标题或正文中寻找首个连续的 6 位数字作为验证码
+  const loose6DigitRegex = /(?<!\d)([0-9]{6})(?!\d)/;
+  
+  const subM = sources.subject.match(loose6DigitRegex);
+  if (subM && subM[1]) return subM[1];
+  
+  const bodyM = sources.body.match(loose6DigitRegex);
+  if (bodyM && bodyM[1] && !isLikelyNonVerificationCode(bodyM[1], sources.body)) {
+    return bodyM[1];
+  }
+  // =========================================================
 
+  return "";
+}
   return '';
 }
 
