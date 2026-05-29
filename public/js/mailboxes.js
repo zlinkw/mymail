@@ -66,7 +66,7 @@ const els = {
 };
 
 // 状态
-let page = 1, PAGE_SIZE = 20, lastCount = 0, currentData = [];
+let page = 1, PAGE_SIZE = 100, lastCount = 0, currentData = [];
 let currentView = localStorage.getItem('mf:mailboxes:view') || 'grid';
 let searchTimeout = null, isLoading = false;
 let availableDomains = [];
