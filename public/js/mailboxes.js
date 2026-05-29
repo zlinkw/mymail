@@ -31,6 +31,8 @@ const els = {
   favoriteFilter: document.getElementById('favorite-filter'),
   forwardFilter: document.getElementById('forward-filter'),
   // 批量操作按钮
+  selectAll: document.getElementById('select-all-mailboxes'),
+  batchDelete: document.getElementById('batch-delete'),
   batchAllow: document.getElementById('batch-allow'),
   batchDeny: document.getElementById('batch-deny'),
   batchFavorite: document.getElementById('batch-favorite'),
@@ -67,6 +69,56 @@ let page = 1, PAGE_SIZE = 20, lastCount = 0, currentData = [];
 let currentView = localStorage.getItem('mf:mailboxes:view') || 'grid';
 let searchTimeout = null, isLoading = false;
 let availableDomains = [];
+
+// ================= 新增：动态注入复选框机制 =================
+function injectCheckboxes() {
+  const items = els.grid.querySelectorAll(currentView === 'grid' ? '.mailbox-card' : '.mailbox-list-item');
+  items.forEach(item => {
+    const address = item.dataset.address;
+    if (!address || item.querySelector('.mailbox-checkbox')) return;
+    
+    const cbWrapper = document.createElement('div');
+    cbWrapper.className = 'mailbox-checkbox-wrapper';
+    
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'mailbox-checkbox checkbox checkbox-sm checkbox-primary';
+    cb.value = address;
+    
+    // 阻止冒泡，避免点击复选框时触发卡片跳转
+    cb.onclick = (e) => e.stopPropagation();
+    cb.onchange = () => updateBatchDeleteUI();
+    
+    cbWrapper.appendChild(cb);
+    
+    if (currentView === 'grid') {
+      cbWrapper.style.position = 'absolute';
+      cbWrapper.style.top = '12px';
+      cbWrapper.style.left = '12px';
+      cbWrapper.style.zIndex = '10';
+      item.style.position = 'relative';
+      item.appendChild(cbWrapper);
+    } else {
+      cbWrapper.style.display = 'flex';
+      cbWrapper.style.alignItems = 'center';
+      cbWrapper.style.marginRight = '12px';
+      item.insertBefore(cbWrapper, item.firstChild);
+    }
+  });
+}
+
+function updateBatchDeleteUI() {
+  const checkboxes = els.grid?.querySelectorAll('.mailbox-checkbox') || [];
+  const checked = els.grid?.querySelectorAll('.mailbox-checkbox:checked') || [];
+  
+  if (els.selectAll && checkboxes.length > 0) {
+    els.selectAll.checked = (checked.length === checkboxes.length);
+  } else if (els.selectAll) {
+    els.selectAll.checked = false;
+  }
+}
+// ==========================================================
+
 
 // 加载邮箱列表
 async function load() {
