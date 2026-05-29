@@ -119,28 +119,27 @@
           </div>
           <!-- 第二行：批量操作 + 视图切换 -->
           <div class="toolbar-row-2">
-            <!-- ================= 新增：全选复选框 ================= -->
-            <div class="toolbar-spacer" style="display: flex; align-items: center; padding-left: 8px;">
+            <!-- 新增：全选复选框 -->
+            <div style="display: flex; align-items: center; padding-left: 8px;">
                 <label style="display:inline-flex; align-items:center; cursor:pointer; gap:6px;">
                     <input type="checkbox" id="select-all-mailboxes" class="checkbox checkbox-sm checkbox-primary" />
                     <span style="font-size:14px; font-weight:500;">全选</span>
                 </label>
             </div>
             
-            <div class="batch-actions">
-                <!-- ================= 新增：批量删除按钮 ================= -->
-                <button id="batch-delete" class="btn btn-ghost btn-sm" title="批量删除选中的邮箱" aria-label="批量删除" style="color: #ef4444;">
-                    <span class="btn-icon">
-                        <!-- 借用您项目内已有的 icon-trash 图标 -->
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <use href="/icons/sprites.svg#icon-trash"/>
-                        </svg>
-                    </span>
-                    <span>批量删除</span>
-                </button>
-                <!-- ==================================================== -->
             <div class="toolbar-spacer"></div>
+            
             <div class="batch-actions">
+              <!-- 新增：批量删除按钮 -->
+              <button id="batch-delete" class="btn btn-ghost btn-sm" title="批量删除选中的邮箱" aria-label="批量删除" style="color: #ef4444;">
+                  <span class="btn-icon">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <use href="/icons/sprites.svg#icon-trash"/>
+                      </svg>
+                  </span>
+                  <span>批量删除</span>
+              </button>
+
               <button id="batch-allow" class="btn btn-ghost btn-sm" title="批量放行邮箱登录" aria-label="批量放行">
                 <span class="btn-icon">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -201,9 +200,7 @@
           </div>
         </div>
         <div id="grid" class="grid"></div>
-        <div id="loading-placeholder" class="loading-placeholder">
-          <!-- 骨架屏内容将由JavaScript动态生成 -->
-        </div>
+        <div id="loading-placeholder" class="loading-placeholder"></div>
         <div id="empty" class="empty-state" style="display:none">
           <div class="empty-icon">
             <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.5">
