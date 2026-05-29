@@ -30,9 +30,10 @@ const els = {
   loginFilter: document.getElementById('login-filter'),
   favoriteFilter: document.getElementById('favorite-filter'),
   forwardFilter: document.getElementById('forward-filter'),
-  // 批量操作按钮
+  // 新增：全选与批量删除
   selectAll: document.getElementById('select-all-mailboxes'),
   batchDelete: document.getElementById('batch-delete'),
+  // 批量操作按钮
   batchAllow: document.getElementById('batch-allow'),
   batchDeny: document.getElementById('batch-deny'),
   batchFavorite: document.getElementById('batch-favorite'),
@@ -70,62 +71,105 @@ let currentView = localStorage.getItem('mf:mailboxes:view') || 'grid';
 let searchTimeout = null, isLoading = false;
 let availableDomains = [];
 
-// ================= 新增：动态注入复选框机制 =================
+// ================= 修复后：动态注入复选框机制 =================
 function injectCheckboxes() {
-  const items = els.grid.querySelectorAll(currentView === 'grid' ? '.mailbox-card' : '.mailbox-list-item');
-  items.forEach(item => {
-    const address = item.dataset.address;
-    if (!address || item.querySelector('.mailbox-checkbox')) return;
-    
+  // 寻找所有带有 data-address 的元素（即真实挂载了邮箱地址的卡片或行）
+  const cards = els.grid.querySelectorAll('[data-address]');
+
+  cards.forEach(card => {
+    const address = card.dataset.address;
+    if (!address) return;
+
+    // 防止重复插入
+    if (card.querySelector('.mailbox-checkbox-wrapper')) return;
+
     const cbWrapper = document.createElement('div');
     cbWrapper.className = 'mailbox-checkbox-wrapper';
     
+    // 关键：阻止点击复选框区域时触发卡片自带的“查看详情”跳转行为
+    cbWrapper.addEventListener('click', (e) => e.stopPropagation());
+
     const cb = document.createElement('input');
     cb.type = 'checkbox';
+    // 基础类名，用于后续查询
     cb.className = 'mailbox-checkbox checkbox checkbox-sm checkbox-primary';
+    // 增加内联强制样式，确保复选框可见且易于点击
+    cb.style.width = '20px';
+    cb.style.height = '20px';
+    cb.style.cursor = 'pointer';
+    cb.style.margin = '0';
     cb.value = address;
-    
-    // 阻止冒泡，避免点击复选框时触发卡片跳转
-    cb.onclick = (e) => e.stopPropagation();
-    cb.onchange = () => updateBatchDeleteUI();
-    
+
+    cb.addEventListener('change', (e) => {
+        e.stopPropagation();
+        updateBatchDeleteUI();
+    });
+
     cbWrapper.appendChild(cb);
-    
+
     if (currentView === 'grid') {
-      cbWrapper.style.position = 'absolute';
-      cbWrapper.style.top = '12px';
-      cbWrapper.style.left = '12px';
-      cbWrapper.style.zIndex = '10';
-      item.style.position = 'relative';
-      item.appendChild(cbWrapper);
+        // 网格视图下，将复选框强制悬浮固定在卡片的右上角空白处
+        card.style.position = 'relative';
+        cbWrapper.style.position = 'absolute';
+        cbWrapper.style.top = '16px';
+        cbWrapper.style.right = '16px';
+        cbWrapper.style.zIndex = '50';
+        card.appendChild(cbWrapper);
     } else {
-      cbWrapper.style.display = 'flex';
-      cbWrapper.style.alignItems = 'center';
-      cbWrapper.style.marginRight = '12px';
-      item.insertBefore(cbWrapper, item.firstChild);
+        // 列表视图下，插入到当前行的最左边
+        cbWrapper.style.marginRight = '16px';
+        cbWrapper.style.display = 'flex';
+        cbWrapper.style.alignItems = 'center';
+        card.style.display = 'flex';
+        card.style.alignItems = 'center';
+        card.insertBefore(cbWrapper, card.firstChild);
     }
   });
 }
 
 function updateBatchDeleteUI() {
-  const checkboxes = els.grid?.querySelectorAll('.mailbox-checkbox') || [];
-  const checked = els.grid?.querySelectorAll('.mailbox-checkbox:checked') || [];
-  
-  if (els.selectAll && checkboxes.length > 0) {
-    els.selectAll.checked = (checked.length === checkboxes.length);
-  } else if (els.selectAll) {
-    els.selectAll.checked = false;
+  const checkboxes = Array.from(els.grid?.querySelectorAll('.mailbox-checkbox') || []);
+  const checkedBoxes = checkboxes.filter(cb => cb.checked);
+
+  // 联动更新全选框状态
+  if (els.selectAll) {
+    if (checkboxes.length > 0) {
+      els.selectAll.checked = (checkedBoxes.length === checkboxes.length);
+    } else {
+      els.selectAll.checked = false;
+    }
+  }
+
+  // 动态更新批量删除按钮的文本和数字显示
+  if (els.batchDelete) {
+    if (checkedBoxes.length > 0) {
+      els.batchDelete.innerHTML = `
+        <span class="btn-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <use href="/icons/sprites.svg#icon-trash"/>
+          </svg>
+        </span>
+        <span>删除所选 (${checkedBoxes.length})</span>
+      `;
+    } else {
+      els.batchDelete.innerHTML = `
+        <span class="btn-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <use href="/icons/sprites.svg#icon-trash"/>
+          </svg>
+        </span>
+        <span>批量删除</span>
+      `;
+    }
   }
 }
 // ==========================================================
-
 
 // 加载邮箱列表
 async function load() {
   if (isLoading) return;
   isLoading = true;
   
-  // 显示骨架屏
   if (els.grid) els.grid.innerHTML = generateSkeleton(currentView, 8);
   if (els.empty) els.empty.style.display = 'none';
   
@@ -148,6 +192,9 @@ async function load() {
       if (els.empty) els.empty.style.display = 'block';
     } else {
       els.grid.innerHTML = currentView === 'grid' ? renderGrid(list) : renderList(list);
+      // 数据渲染完毕后，立刻注入复选框
+      injectCheckboxes();
+      updateBatchDeleteUI(); 
       if (els.empty) els.empty.style.display = 'none';
     }
     
@@ -161,7 +208,6 @@ async function load() {
   }
 }
 
-// 更新分页器
 function updatePager() {
   const totalPages = Math.max(1, Math.ceil(lastCount / PAGE_SIZE));
   if (els.page) els.page.textContent = `第 ${page} / ${totalPages} 页 (共 ${lastCount} 个)`;
@@ -169,13 +215,10 @@ function updatePager() {
   if (els.next) els.next.disabled = page >= totalPages;
 }
 
-// 绑定卡片事件
 function bindCardEvents() {
-  // 绑定卡片点击跳转（网格视图）
   els.grid?.querySelectorAll('.mailbox-card[data-action="jump"]').forEach(card => {
     card.onclick = (e) => {
-      // 如果点击的是按钮区域，不跳转
-      if (e.target.closest('.actions')) return;
+      if (e.target.closest('.actions') || e.target.closest('.mailbox-checkbox-wrapper')) return;
       const address = card.dataset.address;
       if (address) {
         showToast('跳转中...', 'info', 500);
@@ -184,9 +227,7 @@ function bindCardEvents() {
     };
   });
   
-  // 绑定按钮操作
   els.grid?.querySelectorAll('[data-action]').forEach(btn => {
-    // 跳过卡片本身（只处理按钮）
     if (btn.classList.contains('mailbox-card') || btn.classList.contains('mailbox-list-item')) return;
     
     btn.onclick = async (e) => {
@@ -209,15 +250,8 @@ function bindCardEvents() {
           break;
         case 'pin':
           try {
-            const pinRes = await api(`/api/mailboxes/pin?address=${encodeURIComponent(address)}`, {
-              method: 'POST'
-            });
-            if (pinRes.ok) {
-              showToast('置顶状态已更新', 'success');
-              load();
-            } else {
-              showToast('操作失败', 'error');
-            }
+            const pinRes = await api(`/api/mailboxes/pin?address=${encodeURIComponent(address)}`, { method: 'POST' });
+            if (pinRes.ok) { showToast('置顶状态已更新', 'success'); load(); } else { showToast('操作失败', 'error'); }
           } catch(e) { showToast('操作失败', 'error'); }
           break;
         case 'forward':
@@ -243,9 +277,7 @@ function bindCardEvents() {
           break;
         case 'password':
           const pwMailbox = currentData.find(x => x.address === address);
-          if (pwMailbox) {
-            openPasswordModal(address, pwMailbox.password_is_default);
-          }
+          if (pwMailbox) { openPasswordModal(address, pwMailbox.password_is_default); }
           break;
         case 'delete':
           if (!confirm(`确定删除邮箱 ${address}？`)) return;
@@ -260,7 +292,6 @@ function bindCardEvents() {
   });
 }
 
-// 视图切换
 function switchView(view) {
   if (currentView === view) return;
   currentView = view;
@@ -270,11 +301,13 @@ function switchView(view) {
   els.grid.className = view;
   if (currentData.length) {
     els.grid.innerHTML = view === 'grid' ? renderGrid(currentData) : renderList(currentData);
+    // 视图切换后必须重新注入复选框
+    injectCheckboxes(); 
+    updateBatchDeleteUI();
     bindCardEvents();
   }
 }
 
-// 加载域名筛选
 async function loadDomainsFilter() {
   try {
     const domains = await fetchDomains();
@@ -287,20 +320,15 @@ async function loadDomainsFilter() {
   } catch(_) {}
 }
 
-// 批量操作状态
 let currentBatchAction = null;
-
-// 密码操作状态
 let currentPasswordAddress = null;
 let currentPasswordIsDefault = false;
 
-// 打开密码操作模态框
 function openPasswordModal(address, isDefault) {
   currentPasswordAddress = address;
   currentPasswordIsDefault = isDefault;
   
   if (isDefault) {
-    // 设置新密码
     if (els.passwordModalIcon) els.passwordModalIcon.textContent = '🔐';
     if (els.passwordModalTitle) els.passwordModalTitle.textContent = '设置密码';
     if (els.passwordModalMessage) els.passwordModalMessage.innerHTML = `为 <strong>${address}</strong> 设置新密码：`;
@@ -309,7 +337,6 @@ function openPasswordModal(address, isDefault) {
     if (els.passwordShowToggle) els.passwordShowToggle.checked = false;
     if (els.passwordNewInput) els.passwordNewInput.type = 'password';
   } else {
-    // 重置密码
     if (els.passwordModalIcon) els.passwordModalIcon.textContent = '🔓';
     if (els.passwordModalTitle) els.passwordModalTitle.textContent = '重置密码';
     if (els.passwordModalMessage) els.passwordModalMessage.innerHTML = `确定将 <strong>${address}</strong> 的密码重置为默认密码（邮箱地址）？`;
@@ -322,14 +349,12 @@ function openPasswordModal(address, isDefault) {
   }
 }
 
-// 关闭密码操作模态框
 function closePasswordModal() {
   if (els.passwordModal) els.passwordModal.style.display = 'none';
   currentPasswordAddress = null;
   currentPasswordIsDefault = false;
 }
 
-// 执行密码操作
 async function executePasswordAction() {
   if (!currentPasswordAddress) return;
   
@@ -342,15 +367,10 @@ async function executePasswordAction() {
   try {
     let res;
     if (currentPasswordIsDefault) {
-      // 设置新密码
       const newPwd = els.passwordNewInput?.value?.trim();
-      if (!newPwd) {
-        showToast('请输入新密码', 'error');
-        return;
-      }
+      if (!newPwd) { showToast('请输入新密码', 'error'); return; }
       res = await apiChangePassword(currentPasswordAddress, newPwd);
     } else {
-      // 重置密码
       res = await apiResetPassword(currentPasswordAddress);
     }
     
@@ -362,16 +382,14 @@ async function executePasswordAction() {
       const err = await res.json().catch(() => ({}));
       showToast(err.error || '操作失败', 'error');
     }
-  } catch (e) {
-    showToast('操作失败: ' + (e.message || '未知错误'), 'error');
-  } finally {
+  } catch (e) { showToast('操作失败: ' + (e.message || '未知错误'), 'error'); } 
+  finally {
     if (btnText) btnText.style.display = 'inline';
     if (btnLoading) btnLoading.style.display = 'none';
     if (els.passwordModalConfirm) els.passwordModalConfirm.disabled = false;
   }
 }
 
-// 打开批量操作模态框
 function openBatchModal(action, title, icon, message) {
   currentBatchAction = action;
   if (els.batchModalIcon) els.batchModalIcon.textContent = icon;
@@ -381,7 +399,6 @@ function openBatchModal(action, title, icon, message) {
   if (els.batchCountInfo) els.batchCountInfo.textContent = '输入邮箱后将显示数量统计';
   if (els.batchModalConfirm) els.batchModalConfirm.disabled = true;
   
-  // 显示/隐藏转发目标输入
   if (els.batchForwardWrapper) {
     els.batchForwardWrapper.style.display = action === 'forward' ? 'block' : 'none';
   }
@@ -390,19 +407,16 @@ function openBatchModal(action, title, icon, message) {
   if (els.batchModal) els.batchModal.style.display = 'flex';
 }
 
-// 关闭批量操作模态框
 function closeBatchModal() {
   if (els.batchModal) els.batchModal.style.display = 'none';
   currentBatchAction = null;
 }
 
-// 解析邮箱列表
 function parseEmails(text) {
   if (!text) return [];
   return text.split(/[\n,;，；\s]+/).map(e => e.trim().toLowerCase()).filter(e => e && e.includes('@'));
 }
 
-// 更新邮箱计数
 function updateBatchCount() {
   const emails = parseEmails(els.batchEmailsInput?.value || '');
   if (els.batchCountInfo) {
@@ -414,7 +428,6 @@ function updateBatchCount() {
   }
 }
 
-// 执行批量操作
 async function executeBatchAction() {
   const emails = parseEmails(els.batchEmailsInput?.value || '');
   if (!emails.length) return;
@@ -428,49 +441,36 @@ async function executeBatchAction() {
   try {
     let result;
     switch (currentBatchAction) {
-      case 'allow':
-        result = await batchToggleLogin(emails, true);
-        break;
-      case 'deny':
-        result = await batchToggleLogin(emails, false);
-        break;
+      case 'allow': result = await batchToggleLogin(emails, true); break;
+      case 'deny': result = await batchToggleLogin(emails, false); break;
       case 'favorite':
         result = await api('/api/mailboxes/batch-favorite-by-address', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ addresses: emails, is_favorite: true })
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ addresses: emails, is_favorite: true })
         });
         break;
       case 'unfavorite':
         result = await api('/api/mailboxes/batch-favorite-by-address', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ addresses: emails, is_favorite: false })
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ addresses: emails, is_favorite: false })
         });
         break;
       case 'forward':
         const forwardTo = els.batchForwardTarget?.value?.trim();
         if (!forwardTo) { showToast('请输入转发目标', 'error'); return; }
         result = await api('/api/mailboxes/batch-forward-by-address', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ addresses: emails, forward_to: forwardTo })
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ addresses: emails, forward_to: forwardTo })
         });
         break;
       case 'clear-forward':
         result = await api('/api/mailboxes/batch-forward-by-address', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ addresses: emails, forward_to: null })
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ addresses: emails, forward_to: null })
         });
         break;
     }
     showToast('批量操作完成', 'success');
     closeBatchModal();
     load();
-  } catch (e) {
-    showToast('操作失败: ' + (e.message || '未知错误'), 'error');
-  } finally {
+  } catch (e) { showToast('操作失败: ' + (e.message || '未知错误'), 'error'); } 
+  finally {
     if (btnText) btnText.style.display = 'inline';
     if (btnLoading) btnLoading.style.display = 'none';
     if (els.batchModalConfirm) els.batchModalConfirm.disabled = false;
@@ -494,7 +494,55 @@ els.viewGrid?.addEventListener('click', () => switchView('grid'));
 els.viewList?.addEventListener('click', () => switchView('list'));
 els.logout?.addEventListener('click', async () => { try { await fetch('/api/logout', { method: 'POST' }); } catch(_) {} location.replace('/html/login.html'); });
 
-// 批量操作按钮
+// ================= 修复后：批量删除点击与全选逻辑 =================
+els.selectAll?.addEventListener('change', (e) => {
+  const isChecked = e.target.checked;
+  const checkboxes = els.grid?.querySelectorAll('.mailbox-checkbox');
+  checkboxes?.forEach(cb => { cb.checked = isChecked; });
+  
+  // 必须加上这行！否则底部按钮不会感应到数字变化
+  updateBatchDeleteUI(); 
+});
+
+els.batchDelete?.addEventListener('click', async () => {
+  const checkedBoxes = els.grid?.querySelectorAll('.mailbox-checkbox:checked');
+  const addresses = Array.from(checkedBoxes || []).map(cb => cb.value).filter(Boolean);
+  
+  if (!addresses.length) {
+    showToast('请先勾选要删除的邮箱', 'warning');
+    return;
+  }
+  
+  if (!confirm(`高危操作：确定要永久删除这 ${addresses.length} 个邮箱及其全部邮件吗？\n此操作无法恢复！`)) return;
+
+  const originalHtml = els.batchDelete.innerHTML;
+  els.batchDelete.innerHTML = '<span class="btn-icon">⏳</span><span>删除中...</span>';
+  els.batchDelete.disabled = true;
+
+  try {
+    const res = await fetch('/api/mailboxes/batch-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ addresses })
+    });
+    
+    const data = await res.json();
+    if (data.success) {
+      showToast(`批量删除完成：成功删除 ${data.success_count} 个邮箱。`, 'success');
+      if (els.selectAll) els.selectAll.checked = false;
+      load(); // 刷新列表
+    } else {
+      showToast(data.message || data.error || '删除失败', 'error');
+    }
+  } catch (err) {
+    showToast('网络请求失败', 'error');
+  } finally {
+    els.batchDelete.innerHTML = originalHtml;
+    els.batchDelete.disabled = false;
+  }
+});
+// ==========================================================
+
 els.batchAllow?.addEventListener('click', () => openBatchModal('allow', '批量放行登录', '✅', '输入要允许登录的邮箱地址（每行一个或用逗号分隔）：'));
 els.batchDeny?.addEventListener('click', () => openBatchModal('deny', '批量禁止登录', '🚫', '输入要禁止登录的邮箱地址（每行一个或用逗号分隔）：'));
 els.batchFavorite?.addEventListener('click', () => openBatchModal('favorite', '批量收藏', '⭐', '输入要收藏的邮箱地址（每行一个或用逗号分隔）：'));
@@ -502,7 +550,6 @@ els.batchUnfavorite?.addEventListener('click', () => openBatchModal('unfavorite'
 els.batchForward?.addEventListener('click', () => openBatchModal('forward', '批量设置转发', '↪️', '输入要设置转发的邮箱地址（每行一个或用逗号分隔）：'));
 els.batchClearForward?.addEventListener('click', () => openBatchModal('clear-forward', '批量清除转发', '🚫', '输入要清除转发的邮箱地址（每行一个或用逗号分隔）：'));
 
-// 批量操作模态框事件
 els.batchModalClose?.addEventListener('click', closeBatchModal);
 els.batchModalCancel?.addEventListener('click', closeBatchModal);
 els.batchEmailsInput?.addEventListener('input', updateBatchCount);
@@ -510,54 +557,36 @@ els.batchForwardTarget?.addEventListener('input', updateBatchCount);
 els.batchModalConfirm?.addEventListener('click', executeBatchAction);
 els.batchModal?.addEventListener('click', (e) => { if (e.target === els.batchModal) closeBatchModal(); });
 
-// 密码操作模态框事件
 els.passwordModalClose?.addEventListener('click', closePasswordModal);
 els.passwordModalCancel?.addEventListener('click', closePasswordModal);
 els.passwordModalConfirm?.addEventListener('click', executePasswordAction);
 els.passwordModal?.addEventListener('click', (e) => { if (e.target === els.passwordModal) closePasswordModal(); });
 els.passwordShowToggle?.addEventListener('change', () => {
-  if (els.passwordNewInput) {
-    els.passwordNewInput.type = els.passwordShowToggle.checked ? 'text' : 'password';
-  }
+  if (els.passwordNewInput) els.passwordNewInput.type = els.passwordShowToggle.checked ? 'text' : 'password';
 });
 els.passwordNewInput?.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    executePasswordAction();
-  }
+  if (e.key === 'Enter') { e.preventDefault(); executePasswordAction(); }
 });
 
-// 初始化 guest 模式
 async function initGuestMode() {
-  // 初始化全局变量
-  if (typeof window.__GUEST_MODE__ === 'undefined') {
-    window.__GUEST_MODE__ = false;
-  }
-  
+  if (typeof window.__GUEST_MODE__ === 'undefined') window.__GUEST_MODE__ = false;
   try {
     const sessionResp = await fetch('/api/session');
     if (sessionResp.ok) {
       const session = await sessionResp.json();
       if (session.role === 'guest' || session.username === 'guest') {
         window.__GUEST_MODE__ = true;
-        // 初始化 mock 数据
         const { MOCK_STATE, buildMockMailboxes } = await import('./modules/app/mock-api.js');
         if (!MOCK_STATE.mailboxes.length) {
           MOCK_STATE.mailboxes = buildMockMailboxes(6, 2, MOCK_STATE.domains);
         }
       }
     }
-  } catch(e) {
-    console.warn('Session check failed:', e);
-  }
+  } catch(e) {}
 }
 
-// 初始化
 (async () => {
-  // 先检查 guest 模式
   await initGuestMode();
-  
-  // 设置初始视图模式
   els.viewGrid?.classList.toggle('active', currentView === 'grid');
   els.viewList?.classList.toggle('active', currentView === 'list');
   if (els.grid) els.grid.className = currentView;
