@@ -29,7 +29,7 @@ export async function handleApiRequest(request, db, mailDomains, options = {
     const path = url.pathname;
 
     // ================= 新增：深度兼容旧版 CloudflareTempMail 客户端 =================
-    // 拦截旧版客户端请求的 /api/mails，直接读库并按照旧版字段格式 (source, message) 返回数组
+    // 拦截旧版客户端请求的 /api/mails，使用全字段嗅探，彻底解决 SQLite 列名不匹配报错
     if (path === '/api/mails' && request.method === 'GET') {
         try {
             // 1. 校验并获取当前邮箱权限
@@ -49,30 +49,37 @@ export async function handleApiRequest(request, db, mailDomains, options = {
                 if (mbRes) mailboxId = mbRes.id;
             }
 
-            if (!mailboxId) return Response.json([]); // 防御性返回空数组
+            if (!mailboxId) return Response.json([]);
 
-            // 4. 直接查库，并强制将字段重命名为旧版脚本期待的名称
-            // from_address -> source
-            // body_text -> message
+            // 4. 使用 SELECT *，把映射工作交给 JS，这样就不会触发 SQLite 的列名报错了
             const { results } = await db.prepare(`
-                SELECT 
-                    id, 
-                    from_address as source, 
-                    subject, 
-                    COALESCE(body_text, intro, '') as message, 
-                    created_at
-                FROM messages 
+                SELECT * FROM messages 
                 WHERE mailbox_id = ? 
                 ORDER BY created_at DESC 
                 LIMIT ? OFFSET ?
             `).bind(mailboxId, limit, offset).all();
 
-            // 5. 旧版脚本要求直接返回一个 Array 数组，而不是 Object
-            return Response.json(results || []);
+            // 5. 自动嗅探匹配实际存在的列名，打包成旧版客户端期望的格式
+            const mappedResults = (results || []).map(row => {
+                // 自动匹配发件人字段：sender / mail_from / from / from_address
+                const sender = row.sender || row.mail_from || row['from'] || row.from_address || row.source || '未知发件人';
+                
+                // 自动匹配邮件正文：优先纯文本(text)，其次是其他格式
+                const body = row.text || row.body_text || row.intro || row.html || row.body_html || row.message || '';
+                
+                return {
+                    id: row.id,
+                    source: sender,
+                    subject: row.subject || '',
+                    message: body,
+                    created_at: row.created_at
+                };
+            });
+
+            return Response.json(mappedResults);
         } catch (e) {
-            // 如果报错，直接返回空数组防止脚本崩溃
-            console.error('兼容接口报错:', e);
-            return Response.json([]);
+            console.error('兼容接口报错:', e.message);
+            return Response.json([]); // 防御性返回空数组，避免脚本闪退
         }
     }
     // ==============================================================================
